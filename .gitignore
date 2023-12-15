@@ -53,13 +53,20 @@ dkms.conf
 
 
 # Build files:
-PQgenKAT_sign3
+PQgenKAT_sign2
 PQgenKAT_sign5
-test/test_eaglesign3
+PQgenKAT_sign52
+test/test_eaglesign2
 test/test_eaglesign5
-test/test_speed3
+test/test_eaglesign52
+test/test_speed2
 test/test_speed5
-test/test_vectors3
+test/test_speed52
+test/test_vectors2
 test/test_vectors5
-test/key_recovery3
+test/test_vectors52
+test/key_recovery2
 test/key_recovery5
+test/key_recovery52
+
+*~

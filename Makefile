@@ -23,9 +23,6 @@ test_vectors: \
 speed: \
   test/test_speed2 \
 
-dist: \
-  test/test_distribution2 \
-
 shared: \
   libpq_eaglesign2_ref.so \
   libpq_fips202_ref.so \
@@ -81,21 +78,6 @@ test/test_vectors52: test/test_vectors.c $(KECCAK_SOURCES) \
   $(KECCAK_HEADERS)
 	$(CC) $(CFLAGS) -DEAGLESIGN_MODE=52 \
 	  -o $@ $< $(KECCAK_SOURCES)
-
-test/test_distribution2: test/test_distribution.c rng.c  $(KECCAK_SOURCES) \
-  $(KECCAK_HEADERS)
-	$(CC) $(CFLAGS) -DEAGLESIGN_MODE=2 \
-	  -o $@ $< rng.c $(KECCAK_SOURCES) -lcrypto
-
-test/test_distribution5: test/test_distribution.c rng.c  $(KECCAK_SOURCES) \
-  $(KECCAK_HEADERS)
-	$(CC) $(CFLAGS) -DEAGLESIGN_MODE=5 \
-	  -o $@ $< rng.c $(KECCAK_SOURCES) -lcrypto
-
-test/test_distribution52: test/test_distribution.c rng.c  $(KECCAK_SOURCES) \
-  $(KECCAK_HEADERS)
-	$(CC) $(CFLAGS) -DEAGLESIGN_MODE=52 \
-	  -o $@ $< rng.c $(KECCAK_SOURCES) -lcrypto
 
 test/test_speed2: test/test_speed.c test/speed_print.c test/speed_print.h \
   test/cpucycles.c test/cpucycles.h randombytes.c $(KECCAK_SOURCES) \
@@ -171,15 +153,6 @@ clean:
 	rm -f test/test_speed2
 	rm -f test/test_speed5
 	rm -f test/test_speed52
-	rm -f test/test_distribution2
-	rm -f test/distributionFg_EagleSign2.csv
-	rm -f test/distributionDF_EagleSign2.csv
-	rm -f test/test_distribution5
-	rm -f test/distributionFg_EagleSign5.csv
-	rm -f test/distributionDF_EagleSign5.csv
-	rm -f test/test_distribution52
-	rm -f test/distributionFg_EagleSign52.csv
-	rm -f test/distributionDF_EagleSign52.csv
 	rm -f PQgenKAT_sign2
 	rm -f PQgenKAT_sign5
 	rm -f PQgenKAT_sign52
