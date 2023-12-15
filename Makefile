@@ -1,5 +1,5 @@
 CC ?= /usr/bin/cc
-CFLAGS += -Ofast -march=native
+CFLAGS += -Ofast -march=native -fopenmp
 NISTFLAGS += 
 SOURCES = sign.c packing.c polyvec.c poly.c ntt.c reduce.c polymatrix.c
 HEADERS = config.h params.h api.h sign.h packing.h polymatrix.h polyvec.h poly.h ntt.h \

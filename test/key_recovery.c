@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <time.h>
 #include <math.h>
+#include "omp.h"
 
 #include "../fips202.h"
 #include "../sign.h"
@@ -16,7 +17,9 @@
 
 #define MSGLEN ( 20 )
 
-void print_progress(size_t count, size_t max, long long u[], S_Q_SIZE v[]) {
+#define NUM_THREADS 96
+
+void print_progress(size_t count, size_t max, double u[], S_Q_SIZE v[]) {
     const int bar_width = 50;
 
     double progress = (double) count / max;
@@ -134,15 +137,16 @@ void determine_c(polyvecl *c, uint8_t *m, size_t mlen, uint8_t *r)
 void private_key_recovery(polyvecl *predicted_gF, int num_sigs, void (*gensig)(uint8_t*, size_t*, uint8_t*))
 {
 	// ================================================================================
-	uint8_t msg[MSGLEN], sig[CRYPTO_EAGLESIGN_BYTES];
-	size_t msglen;
 
 	// Unpacked signature:
-	uint8_t sig_r[SEEDBYTES], tr[SEEDBYTES];
-	polyvecl sig_z, sig_c;
+	uint8_t tr[SEEDBYTES];
 
 	// Statistics on the signatures:
-	long long num_traces[L] = {}, trace_gF[L][L][N] = {};
+	long long num_traces_par[NUM_THREADS][L] = {},
+		 trace_gF_par[NUM_THREADS][L][L][N] = {};
+	long long num_traces[L] = {},
+		 trace_gF[L][L][N] = {};
+	double trace_gF_d[N];
 	double rec_gF[N];
 
 	poly g;
@@ -159,7 +163,14 @@ void private_key_recovery(polyvecl *predicted_gF, int num_sigs, void (*gensig)(u
 	// It's quite likely that you can extend the attack to L = 2.
 	// For now, the goal is only to illustrate the weakness for L = 1.
 
+#pragma omp parallel for num_threads(NUM_THREADS) schedule(static)
 	for (int i = 0; i < num_sigs; i++) {
+		uint8_t msg[MSGLEN], sig[CRYPTO_EAGLESIGN_BYTES];
+		size_t msglen;
+		uint8_t sig_r[SEEDBYTES];
+		polyvecl sig_z, sig_c;
+		int thread_id = omp_get_thread_num();
+
 		gensig(msg, &msglen, sig);
 
 		unpack_sig(sig_r, &sig_z, sig);
@@ -170,7 +181,7 @@ void private_key_recovery(polyvecl *predicted_gF, int num_sigs, void (*gensig)(u
 			for (int idx_c = 0; idx_c < N; idx_c++) {
 				if (sig_c.vec[lu].coeffs[idx_c] != 0) {
 					long long c0 = sig_c.vec[lu].coeffs[idx_c];
-					num_traces[lu]++;
+					num_traces_par[thread_id][lu]++;
 
 					// Gather statistics on gF:
 					for (int lz = 0; lz < L; lz++) {
@@ -178,14 +189,38 @@ void private_key_recovery(polyvecl *predicted_gF, int num_sigs, void (*gensig)(u
 							int idx_z = idx_c + j, sign = 1;
 							if (idx_z >= N) idx_z -= N, sign = -sign;
 							long long zj = sign * (long long)sig_z.vec[lz].coeffs[idx_z];
-							trace_gF[lz][lu][j] += c0 * zj;
+							trace_gF_par[thread_id][lz][lu][j] += c0 * zj;
 						}
 					}
 				}
 			}
 		}
-		if(i%100 == 0)
-			print_progress(i+1, num_sigs, trace_gF[0][0], gF[0].vec[0].coeffs);
+		if(thread_id == 0 && i%256 == 0) {
+#pragma omp critical
+			{
+				for(int j=0; j<N; j++) {
+					trace_gF_d[j] = 0;
+					for(int t=0; t<NUM_THREADS; t++) 
+						trace_gF_d[j] += 0.001*(double)trace_gF_par[t][0][0][j];
+				}
+				print_progress(NUM_THREADS*(i+1), num_sigs, trace_gF_d, gF[0].vec[0].coeffs);
+			}
+		}
+	}
+
+	printf("\n\n");
+
+	for(int lu=0; lu<L; lu++) {
+		num_traces[lu] = 0;
+		for(int t=0; t<NUM_THREADS; t++)
+			num_traces[lu] += num_traces_par[t][lu];
+		for(int lz=0; lz<L; lz++) {
+			for(int j=0; j<N; j++) {
+				trace_gF[lz][lu][j] = 0;
+				for(int t=0; t<NUM_THREADS; t++) 
+					trace_gF[lz][lu][j] += trace_gF_par[t][lz][lu][j];
+			}
+		}
 	}
 
 	// Recover the secret key.
@@ -264,8 +299,8 @@ void generate_msg_sig(uint8_t *msg, size_t *msglen, uint8_t sig[CRYPTO_EAGLESIGN
 	assert(siglen == CRYPTO_EAGLESIGN_BYTES);
 }
 
-signed main(int argc, char **argv) {
-	int num_sigs = argc > 1 ? atoi(argv[1]) : 1000;
+int main(int argc, char **argv) {
+	long num_sigs = argc > 1 ? atol(argv[1]) : 10000000L;
 	polyvecl predicted_gF[L], predicted_DF[K];
 
 	srand(time(NULL));
