@@ -16,23 +16,65 @@
 
 #define MSGLEN ( 20 )
 
-void print_G_and_D(const uint8_t *private_key)
+void print_progress(size_t count, size_t max, long long u[], S_Q_SIZE v[]) {
+    const int bar_width = 50;
+
+    double progress = (double) count / max;
+    int bar_length = progress * bar_width;
+
+    double dotp = 0., normu = 0., normv = 0., corr;
+    int reccoeffs = 0;
+    for(int j=0; j<N; j++) {
+        normu += u[j] * u[j];
+        normv += v[j] * v[j];
+        dotp  += u[j] * v[j];
+    }
+    corr = dotp / sqrt(normu*normv);
+    if(normu > 0) {
+        //double factor = sqrt(TG*ETAF*(ETAF+1)*N/3./normu);
+        double factor = sqrt(normv/normu);
+        for(int j=0; j<N; j++)
+        reccoeffs += (lround((double)u[j]*factor) == v[j]);
+    }
+
+    printf("\rSigs: [");
+    for (int i = 0; i < bar_width; ++i) {
+        printf("%c", (i<bar_length)?'#':' ');
+    }
+    printf("] %.2f%% [%.2f; %d]", progress * 100, corr, reccoeffs);
+    fflush(stdout);
+}
+
+void print_gF_and_DF(const uint8_t *private_key)
 {
 	uint8_t rho[SEEDBYTES], tr[SEEDBYTES];
-	polyvecl G[L], D[K];
-	unpack_sk(rho, tr, G, D, private_key);
- 
+	poly g;
+	polyvecl D[K], F[L], Es[K], gF[L], DF[K];
+	polyveck DFtmp[L];
+	unpack_sk(rho, tr, &g, D, F, Es, private_key);
+
+	poly_ntt(&g);
+	polymatrix_ntt_l_l(F);
+	polymatrix_ntt_k_l(D);
+
+	poly_pointwise_matrix_product_l_l(gF, g, F);
+	polymatrix_pointwise_product(DFtmp, D, F);
+	polymatrix_reformat(DF, DFtmp);
+
+	polymatrix_invntt_tomont_l_l(gF);
+	polymatrix_invntt_tomont_k_l(DF);
+
 	// EagleSign3: L = K = 1
 
 	// ================================================================================
-	// Print G
+	// Print gF
 	// ================================================================================
 	for (int i = 0; i < L; i++) {
 		for (int j = 0; j < L; j++) {
-			printf("G[%d][%d] = (", i, j);
+			printf("gF[%d][%d] = (", i, j);
 			for (int k = 0; k < N; k++) {
 				if (k % 64 == 0) printf("\n");
-				printf("%2d", G[i].vec[j].coeffs[k]);
+				printf("%2d", gF[i].vec[j].coeffs[k]);
 				if (k != N-1) printf(",");
 			}
 			printf(")\n");
@@ -42,14 +84,14 @@ void print_G_and_D(const uint8_t *private_key)
 	return;
 
 	// ================================================================================
-	// Print D
+	// Print DF
 	// ================================================================================
 	for (int i = 0; i < K; i++) {
 		for (int j = 0; j < L; j++) {
-			printf("D[%d][%d] = (", i, j);
+			printf("DF[%d][%d] = (", i, j);
 			for (int k = 0; k < N; k++) {
 				if (k % 64 == 0) printf("\n");
-				printf("%2d", D[i].vec[j].coeffs[k]);
+				printf("%2d", DF[i].vec[j].coeffs[k]);
 				if (k != N-1) printf(",");
 			}
 			printf(")\n");
@@ -59,28 +101,15 @@ void print_G_and_D(const uint8_t *private_key)
 
 // Public key:
 uint8_t public_key[CRYPTO_EAGLESIGN_PUBLICKEYBYTES], rho[SEEDBYTES];
+uint8_t private_key[CRYPTO_EAGLESIGN_SECRETKEYBYTES];
 polyvecl E[K];
 polyvecl A[K]; // matrix A is even more 'unpacked'
 
-void determine_c(polyvecl *C, uint8_t *m, size_t mlen, uint8_t *r, polyvecl *Z, polyveck *W)
+void determine_c(polyvecl *c, uint8_t *m, size_t mlen, uint8_t *r)
 {
-	uint8_t c[SEEDBYTES], mu[CRHBYTES];
+	uint8_t cp[SEEDBYTES], mu[CRHBYTES];
 	keccak_state state;
 	uint16_t nonce_c = 0;
-
-/*
-	unpack_pk(rho, E, pk);
-
-	unpack_sig(r, &Z, &W, sig);
-
-	if (polyvec_chknorms(Z, W))
-		return -1;
-*/
-
-	/* Applying NTT Transformation*/
-	polymatrix_ntt_k_l(E);
-	polyvecl_ntt(Z);
-	polyveck_ntt(W);
 
 	/* Compute mu = CRH(H(pk), msg) */
 	shake256(mu, SEEDBYTES, public_key, CRYPTO_EAGLESIGN_PUBLICKEYBYTES);
@@ -95,75 +124,68 @@ void determine_c(polyvecl *C, uint8_t *m, size_t mlen, uint8_t *r, polyvecl *Z, 
 	shake256_absorb(&state, r, SEEDBYTES);
 	shake256_absorb(&state, mu, CRHBYTES);
 	shake256_finalize(&state);
-	shake256_squeeze(c, SEEDBYTES, &state);
-	polyvecl_challenge_y1_c(C, c, &nonce_c, 1);
+	shake256_squeeze(cp, SEEDBYTES, &state);
+	nonce_c = 0;
+	polyvecl_challenge(c, cp, &nonce_c, 2);
 
-	polyvecl_invntt_tomont(C);
+	polyvecl_invntt_tomont(c);
 }
 
-void private_key_recovery(polyvecl *predicted_G, polyvecl *predicted_D, int num_sigs, void (*gensig)(uint8_t*, size_t*, uint8_t*))
+void private_key_recovery(polyvecl *predicted_gF, int num_sigs, void (*gensig)(uint8_t*, size_t*, uint8_t*))
 {
 	// ================================================================================
 	uint8_t msg[MSGLEN], sig[CRYPTO_EAGLESIGN_BYTES];
 	size_t msglen;
 
 	// Unpacked signature:
-	uint8_t sig_r[SEEDBYTES];
-	polyvecl sig_Z, sig_C;
-	polyveck sig_W;
+	uint8_t sig_r[SEEDBYTES], tr[SEEDBYTES];
+	polyvecl sig_z, sig_c;
 
 	// Statistics on the signatures:
-	long long num_traces[L] = {}, traceG[L][L][N] = {}, traceD[K][L][N] = {};
-	double recG[N], recD[N];
+	long long num_traces[L] = {}, trace_gF[L][L][N] = {};
+	double rec_gF[N];
+
+	poly g;
+	polyvecl D[K], F[L], Es[K], gF[L];
+	unpack_sk(rho, tr, &g, D, F, Es, private_key);
+
+	poly_ntt(&g);
+	polymatrix_ntt_l_l(F);
+	poly_pointwise_matrix_product_l_l(gF, g, F);
+	polymatrix_invntt_tomont_l_l(gF);
 
 
 	// ================================================================================
 	// It's quite likely that you can extend the attack to L = 2.
 	// For now, the goal is only to illustrate the weakness for L = 1.
-	unpack_pk(rho, E, public_key);
-	/* Expand matrix A in NTT form*/
-	polyvec_matrix_expand(A, rho);
 
 	for (int i = 0; i < num_sigs; i++) {
 		gensig(msg, &msglen, sig);
 
-		assert(unpack_sig(sig_r, &sig_Z, &sig_W, sig) == 0);
-		assert(!polyvec_chknorms(&sig_Z, &sig_W));
+		unpack_sig(sig_r, &sig_z, sig);
 
-		determine_c(&sig_C, msg, msglen, sig_r, &sig_Z, &sig_W);
-		polyvecl_invntt_tomont(&sig_Z);
-		polyveck_invntt_tomont(&sig_W);
+		determine_c(&sig_c, msg, msglen, sig_r);
 
 		for (int lu = 0; lu < L; lu++) {
-
 			for (int idx_c = 0; idx_c < N; idx_c++) {
-				if (sig_C.vec[lu].coeffs[idx_c] != 0) {
-					long long c0 = sig_C.vec[lu].coeffs[idx_c];
+				if (sig_c.vec[lu].coeffs[idx_c] != 0) {
+					long long c0 = sig_c.vec[lu].coeffs[idx_c];
 					num_traces[lu]++;
 
-					// Gather statistics on G:
+					// Gather statistics on gF:
 					for (int lz = 0; lz < L; lz++) {
 						for (int j = 0; j < N; j++) {
 							int idx_z = idx_c + j, sign = 1;
 							if (idx_z >= N) idx_z -= N, sign = -sign;
-							long long zj = sign * (long long)sig_Z.vec[lz].coeffs[idx_z];
-							traceG[lz][lu][j] += c0 * zj;
+							long long zj = sign * (long long)sig_z.vec[lz].coeffs[idx_z];
+							trace_gF[lz][lu][j] += c0 * zj;
 						}
 					}
-
-					// Gather statistics on D:
-					for (int lw = 0; lw < K; lw++) {
-						for (int j = 0; j < N; j++) {
-							int idx_w = idx_c + j, sign = 1;
-							if (idx_w >= N) idx_w -= N, sign = -sign;
-							long long wj = -sign * (long long)sig_W.vec[lw].coeffs[idx_w];
-							traceD[lw][lu][j] += c0 * wj;
-						}
-					}
-
 				}
 			}
 		}
+		if(i%100 == 0)
+			print_progress(i+1, num_sigs, trace_gF[0][0], gF[0].vec[0].coeffs);
 	}
 
 	// Recover the secret key.
@@ -171,66 +193,57 @@ void private_key_recovery(polyvecl *predicted_G, polyvecl *predicted_D, int num_
 	// printf("Took %lld traces\n", num_traces[0]);
 
 	for (int lu = 0; lu < L; lu++) {
-
-		// Recover G:
+		// Recover gF:
 		for (int lz = 0; lz < L; lz++) {
-			double norm_recG = 0;
+			double norm_rec_gF = 0;
 			for (int i = 0; i < N; i++) {
-				recG[i] = ((double)traceG[lz][lu][i]) / num_traces[lu];
-				norm_recG += recG[i] * recG[i];
+				rec_gF[i] = ((double)trace_gF[lz][lu][i]) / num_traces[lu];
+				norm_rec_gF += rec_gF[i] * rec_gF[i];
 			}
 			for (int i = 0; i < N; i++) {
-				// Formula used from Mehdi's code:
-				recG[i] *= sqrt(2 * N / (3 * norm_recG));
-				predicted_G[lz].vec[lu].coeffs[i] = lround(recG[i]);
-			}
-		}
-
-		// Recover D:
-		for (int lw = 0; lw < K; lw++) {
-			double norm_recD = 0;
-			for (int i = 0; i < N; i++) {
-				recD[i] = ((double)traceD[lw][lu][i]) / num_traces[lu];
-				norm_recD += recD[i] * recD[i];
-			}
-			for (int i = 0; i < N; i++) {
-				// Formula used from Mehdi's code:
-				recD[i] *= sqrt(2 * N / (3 * norm_recD));
-				predicted_D[lw].vec[lu].coeffs[i] = lround(recD[i]);
+				rec_gF[i] *= sqrt(TG * ETAF * (ETAF+1) * N / (3 * norm_rec_gF));
+				predicted_gF[lz].vec[lu].coeffs[i] = lround(rec_gF[i]);
 			}
 		}
-
 	}
 }
 
-void compare_keys(const uint8_t *private_key, const polyvecl *predicted_G, const polyvecl *predicted_D)
+void compare_keys(const uint8_t *private_key, const polyvecl *predicted_gF)
 {
 	uint8_t rho[SEEDBYTES], tr[SEEDBYTES];
-	polyvecl G[L], D[K];
-	unpack_sk(rho, tr, G, D, private_key);
+	poly g;
+	polyvecl D[K], F[L], Es[K], gF[L], DF[K];
+	polyveck DFtmp[L];
+	unpack_sk(rho, tr, &g, D, F, Es, private_key);
+
+	poly_ntt(&g);
+	polymatrix_ntt_l_l(F);
+	polymatrix_ntt_k_l(D);
+
+	poly_pointwise_matrix_product_l_l(gF, g, F);
+	polymatrix_pointwise_product(DFtmp, D, F);
+	polymatrix_reformat(DF, DFtmp);
+
+	polymatrix_invntt_tomont_l_l(gF);
+	polymatrix_invntt_tomont_k_l(DF);
  
 	for (int lu = 0; lu < L; lu++) {
 
-		// Show results for G:
+		// Show results for gF:
 		for (int lz = 0; lz < L; lz++) {
 			int n_correct = 0;
-			for (int i = 0; i < N; i++) {
-				int aGi = G[lz].vec[lu].coeffs[i];
-				int pGi = predicted_G[lz].vec[lu].coeffs[i];
-				n_correct += (aGi == pGi);
-			}
-			printf("%d out of %d coefficients of G[%d,%d] are recovered succesfully.\n", n_correct, N, lz, lu);
-		}
+			double corrcoeff = 0., norm_gF = 0., norm_pgF = 0., dotp = 0.;
 
-		// Show results for D:
-		for (int lw = 0; lw < L; lw++) {
-			int n_correct = 0;
 			for (int i = 0; i < N; i++) {
-				int aDi = D[lw].vec[lu].coeffs[i];
-				int pDi = predicted_D[lw].vec[lu].coeffs[i];
-				n_correct += (aDi == pDi);
+				int64_t aGi = gF[lz].vec[lu].coeffs[i];
+				int64_t pGi = predicted_gF[lz].vec[lu].coeffs[i];
+				n_correct += (aGi == pGi);
+				norm_gF += (double)aGi * aGi;
+				norm_pgF+= (double)pGi * pGi;
+				dotp    += (double)aGi * pGi;
 			}
-			printf("%d out of %d coefficients of D[%d,%d] are recovered succesfully.\n", n_correct, N, lw, lu);
+			corrcoeff = dotp / sqrt(norm_gF*norm_pgF);
+			printf("%d out of %d coefficients of gF[%d,%d] are recovered succesfully. Correlation: %f.\n", n_correct, N, lz, lu, corrcoeff);
 		}
 	}
 
@@ -238,7 +251,6 @@ void compare_keys(const uint8_t *private_key, const polyvecl *predicted_G, const
 
 
 
-uint8_t private_key[CRYPTO_EAGLESIGN_SECRETKEYBYTES];
 
 void generate_msg_sig(uint8_t *msg, size_t *msglen, uint8_t sig[CRYPTO_EAGLESIGN_BYTES]) {
 	size_t siglen;
@@ -254,7 +266,7 @@ void generate_msg_sig(uint8_t *msg, size_t *msglen, uint8_t sig[CRYPTO_EAGLESIGN
 
 signed main(int argc, char **argv) {
 	int num_sigs = argc > 1 ? atoi(argv[1]) : 1000;
-	polyvecl predicted_G[L], predicted_D[K];
+	polyvecl predicted_gF[L], predicted_DF[K];
 
 	srand(time(NULL));
 
@@ -262,13 +274,27 @@ signed main(int argc, char **argv) {
 	crypto_sign_keypair(public_key, private_key);
 
 	// Recover G:
-	private_key_recovery(predicted_G, predicted_D, num_sigs, generate_msg_sig);
+	private_key_recovery(predicted_gF, num_sigs, generate_msg_sig);
 
 	// Print the actual private key.
-	// print_G_and_D(private_key);
+	print_gF_and_DF(private_key);
+
+	for (int i = 0; i < L; i++) {
+		for (int j = 0; j < L; j++) {
+			printf("predicted_gF[%d][%d] = (", i, j);
+			for (int k = 0; k < N; k++) {
+				if (k % 64 == 0) printf("\n");
+				printf("%d", predicted_gF[i].vec[j].coeffs[k]);
+				if (k != N-1) printf(",");
+			}
+			printf(")\n");
+		}
+	}
 
 	// Compare G and predicted_G:
-	compare_keys(private_key, predicted_G, predicted_D);
+	compare_keys(private_key, predicted_gF);
 
 	return 0;
 }
+
+// vim: ts=4
