@@ -319,7 +319,7 @@ int main(int argc, char **argv) {
 			printf("predicted_gF[%d][%d] = (", i, j);
 			for (int k = 0; k < N; k++) {
 				if (k % 64 == 0) printf("\n");
-				printf("%d", predicted_gF[i].vec[j].coeffs[k]);
+				printf("%2d", predicted_gF[i].vec[j].coeffs[k]);
 				if (k != N-1) printf(",");
 			}
 			printf(")\n");
