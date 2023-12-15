@@ -26,27 +26,29 @@ void unpack_pk(
 void pack_sk(uint8_t sk[CRYPTO_EAGLESIGN_SECRETKEYBYTES],
              const uint8_t rho[SEEDBYTES],
              const uint8_t tr[SEEDBYTES],
-             const polyvecl G[L],
-             const polyvecl D[K]);
+             const poly g,
+             const polyvecl D[K],
+             const polyvecl F[L],
+             const polyvecl Es[K]);
 
 #define unpack_sk EAGLESIGN_NAMESPACE(unpack_sk)
 void unpack_sk(
     uint8_t rho[SEEDBYTES],
     uint8_t tr[SEEDBYTES],
-    polyvecl G[L],
+    poly *g,
     polyvecl D[K],
+    polyvecl F[L],
+    polyvecl Es[K],
     const uint8_t sk[CRYPTO_EAGLESIGN_SECRETKEYBYTES]);
 
 #define pack_sig EAGLESIGN_NAMESPACE(pack_sig)
 void pack_sig(uint8_t sig[CRYPTO_EAGLESIGN_BYTES],
               const uint8_t r[SEEDBYTES],
-              const polyvecl *Z,
-              const polyveck *W);
+              const polyvecl *z);
 #define unpack_sig EAGLESIGN_NAMESPACE(unpack_sig)
 int unpack_sig(
     uint8_t r[SEEDBYTES],
-    polyvecl *Z,
-    polyveck *W,
+    polyvecl *z,
     const uint8_t sig[CRYPTO_EAGLESIGN_BYTES]);
 
 #endif

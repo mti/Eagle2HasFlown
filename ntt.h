@@ -17,15 +17,15 @@ void ntt(S_Q_SIZE a[N], unsigned logn);
 void invntt_tomont(S_Q_SIZE a[N], unsigned logn);
 
 #define GMb EAGLESIGN_NAMESPACE(GMb)
-extern const int16_t GMb[N];
+extern const S_Q_SIZE GMb[N];
 
 #define iGMb EAGLESIGN_NAMESPACE(iGMb)
-extern const int16_t iGMb[N];
+extern const S_Q_SIZE iGMb[N];
 
 #define basemul EAGLESIGN_NAMESPACE(basemul)
-void basemul(int16_t r[2],
-             const int16_t a[2],
-             const int16_t b[2],
-             int16_t zeta);
+void basemul(S_Q_SIZE r[2],
+             const S_Q_SIZE a[2],
+             const S_Q_SIZE b[2],
+             S_Q_SIZE zeta);
 
 #endif

@@ -104,3 +104,31 @@ S_DOUBLE_Q_SIZE montymul2(S_DOUBLE_Q_SIZE x, S_DOUBLE_Q_SIZE y)
 {
   return reduce((Q_SIZE)montymul_(montymul_(addq(x), addq(y)), R2));
 }
+
+/*************************************************
+ * Name:        decompose
+ *
+ * Description: For finite field element a, compute high and low bits a0, a1 such
+ *              that a mod^+ Q = a1*ALPHA + a0 with -ALPHA/2 < a0 <= ALPHA/2 except
+ *              Assumes a to be standard representative.
+ *
+ * Arguments:   - S_Q_SIZE a: input element
+ *              - S_Q_SIZE *a0: pointer to output element a0
+ *
+ * Returns a1.
+ **************************************************/
+S_Q_SIZE decompose(S_Q_SIZE *a0, S_Q_SIZE a)
+{
+  S_Q_SIZE a1, center, alpha = 2 * GAMMA2;
+
+  // a -= Q * (a >> (Q_BIT_SIZE - 1));
+
+  a1 = a >> (LOGGAMMA2 + 1);
+  *a0 = a & (alpha - 1);
+
+  center = ((alpha >> 1) - (*a0 + 1)) >> (Q_BIT_SIZE - 1);
+
+  *a0 += alpha * center;
+  a1 -= center;
+  return a1;
+}

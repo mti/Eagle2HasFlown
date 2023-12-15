@@ -7,8 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
-#include "../randombytes.h"
 #include "../sign.h"
+#include "../rng.h"
 
 #define MLEN 100
 #define NTESTS 1000
@@ -24,6 +24,7 @@ int main(void)
   uint8_t sm[MLEN + CRYPTO_EAGLESIGN_BYTES];
   uint8_t pk[CRYPTO_EAGLESIGN_PUBLICKEYBYTES];
   uint8_t sk[CRYPTO_EAGLESIGN_SECRETKEYBYTES];
+
   for (i = 0; i < NTESTS; ++i)
   {
     randombytes(m, MLEN);
@@ -69,7 +70,6 @@ int main(void)
       return -1;
     }
   }
-
   printf("CRYPTO_EAGLESIGN_PUBLICKEYBYTES = %d\n", CRYPTO_EAGLESIGN_PUBLICKEYBYTES);
   printf("CRYPTO_EAGLESIGN_SECRETKEYBYTES = %d\n", CRYPTO_EAGLESIGN_SECRETKEYBYTES);
   printf("CRYPTO_EAGLESIGN_BYTES = %d\n", CRYPTO_EAGLESIGN_BYTES);

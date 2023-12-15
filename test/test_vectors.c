@@ -18,7 +18,7 @@
 #include "../packing.h"
 
 #define MLEN 32
-#define NVECTORS 1000
+#define NVECTORS 100
 
 void randombytes(uint8_t *out, size_t outlen)
 {
@@ -43,8 +43,8 @@ int main(void)
   uint8_t seed[CRHBYTES];
   uint8_t buf[CRYPTO_EAGLESIGN_SECRETKEYBYTES];
   size_t siglen;
-  poly c, tmp;
-  polyvecl A[K], G[L], D[K], G_INV[L], Y1;
+  poly c, tmp, g_inv, g;
+  polyvecl A[K], F[L], D[K], F_INV[L], Y1;
   polyveck Y2;
   uint16_t nonce = 0;
 
@@ -86,7 +86,7 @@ int main(void)
       printf("%02X", seed[j]);
     printf("\n");
 
-    polyvec_matrix_expand(A, seed);
+    polymatrix_expand(A, seed);
     printf("A = ([");
     for (j = 0; j < K; ++j)
     {
@@ -107,10 +107,26 @@ int main(void)
       }
     }
 
-    polymatrix_k_l_expand(D, seed);
+    poly_expand_g_invertible(&g_inv, &g, seed);
+    poly_invntt_tomont(&g);
+
+    if (poly_chknorm(&g, 2))
+      fprintf(stderr, "ERROR in poly_expand_g_invertible!\n");
+
+    printf("g = [");
+    for (l = 0; l < N; ++l)
+    {
+      printf("%8d", g.coeffs[l]);
+      if (l < N - 1)
+        printf(", ");
+      else
+        printf("]\n");
+    }
+
+    polymatrix_k_l_expand_d(D, seed);
     polymatrix_invntt_tomont_k_l(D);
 
-    if (polyvecl_chknorms(&D[0], LOGETAD))
+    if (polyvecl_chknorm(&D[0], 2))
       fprintf(stderr, "ERROR in polymatrix_invntt_tomont_k_l!\n");
 
     printf("D = ([");
@@ -133,27 +149,27 @@ int main(void)
       }
     }
 
-    polymatrix_l_expand_invertible(G_INV, G, seed);
-    polymatrix_invntt_tomont_l_l(G);
+    polymatrix_l_expand_f_invertible(F_INV, F, seed);
+    polymatrix_invntt_tomont_l_l(F);
 
-    if (polyvecl_chknorms(&G[0], LOGETAG))
+    if (polyvecl_chknorm(&F[0], LOGETAF))
       fprintf(stderr, "ERROR in polymatrix_invntt_tomont_l_l!\n");
 
-    polyG_pack(buf, &G[0].vec[0], LOGETAG);
-    polyG_unpack(&tmp, buf, LOGETAG);
+    poly_pack_ETA(buf, &F[0].vec[0], LOGETAF);
+    poly_unpack_ETA(&tmp, buf, LOGETAF);
 
     for (j = 0; j < N; ++j)
-      if (tmp.coeffs[j] != G[0].vec[0].coeffs[j])
-        fprintf(stderr, "ERROR in polyG_(un)pack!\n");
+      if (tmp.coeffs[j] != F[0].vec[0].coeffs[j])
+        fprintf(stderr, "ERROR in poly_(un)pack_ETA!\n");
 
-    printf("G = ([");
+    printf("F = ([");
     for (j = 0; j < L; ++j)
     {
       for (k = 0; k < L; ++k)
       {
         for (l = 0; l < N; ++l)
         {
-          printf("%8d", G[j].vec[k].coeffs[l]);
+          printf("%8d", F[j].vec[k].coeffs[l]);
           if (l < N - 1)
             printf(", ");
           else if (k < L - 1)

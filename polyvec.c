@@ -15,28 +15,20 @@
 /************ Vectors of polynomials of length L **************/
 /**************************************************************/
 
-void polyvecl_uniform_eta_g(polyvecl *v, const uint8_t seed[CRHBYTES], uint16_t *nonce)
+void polyvecl_uniform_eta_f(polyvecl *v, const uint8_t seed[CRHBYTES], uint16_t *nonce)
 {
   unsigned int i;
 
   for (i = 0; i < L; ++i)
-    poly_uniform_eta_g(&v->vec[i], seed, (*nonce)++);
+    poly_uniform_eta(&v->vec[i], seed, (*nonce)++, 0);
 }
 
-void polyvecl_uniform_eta_d(polyvecl *v, const uint8_t seed[CRHBYTES], uint16_t *nonce)
+void polyvecl_challenge(polyvecl *v, const uint8_t seed[SEEDBYTES], uint16_t *nonce, int param)
 {
   unsigned int i;
 
   for (i = 0; i < L; ++i)
-    poly_uniform_eta_d(&v->vec[i], seed, (*nonce)++);
-}
-
-void polyvecl_challenge_y1_c(polyvecl *v, const uint8_t seed[SEEDBYTES], uint16_t *nonce, int param)
-{
-  unsigned int i;
-
-  for (i = 0; i < L; ++i)
-    poly_challenge_y1_c(&v->vec[i], seed, (*nonce)++, param);
+    poly_challenge(&v->vec[i], seed, (*nonce)++, param);
 }
 
 void polyvecl_add(polyvecl *w, const polyvecl *u, const polyvecl *v)
@@ -90,12 +82,12 @@ void polyvecl_pointwise_acc_montgomery(poly *w,
 /************ Vectors of polynomials of length K **************/
 /**************************************************************/
 
-void polyveck_uniform_eta_y2(polyveck *v, const uint8_t seed[CRHBYTES], uint16_t *nonce)
+void polyveck_uniform_eta_y(polyvecl *v, const uint8_t seed[CRHBYTES], uint16_t *nonce)
 {
   unsigned int i;
 
-  for (i = 0; i < K; ++i)
-    poly_uniform_eta_y2(&v->vec[i], seed, (*nonce)++);
+  for (i = 0; i < L; ++i)
+    poly_uniform_eta(&v->vec[i], seed, (*nonce)++, 1);
 }
 
 void polyveck_add(polyveck *w, const polyveck *u, const polyveck *v)
@@ -138,12 +130,35 @@ void polyveck_pointwise_poly_montgomery(polyveck *r, const poly *a, const polyve
     poly_pointwise_montgomery(&r->vec[i], a, &v->vec[i]);
 }
 
+/*************************************************
+ * Name:        polyveck_decompose
+ *
+ * Description: For all coefficients a of polynomials in vector of length K,
+ *              compute high and low bits a0, a1 such a mod^+ Q = a1*ALPHA + a0
+ *              with -ALPHA/2 < a0 <= ALPHA/2 except a1 = (Q-1)/ALPHA where we
+ *              set a1 = 0 and -ALPHA/2 <= a0 = a mod Q - Q < 0.
+ *              Assumes coefficients to be standard representatives.
+ *
+ * Arguments:   - polyveck *v1: pointer to output vector of polynomials with
+ *                              coefficients a1
+ *              - polyveck *v0: pointer to output vector of polynomials with
+ *                              coefficients a0
+ *              - const polyveck *v: pointer to input vector
+ **************************************************/
+void polyveck_decompose(polyveck *v1, polyveck *v0, const polyveck *v)
+{
+  unsigned int i;
+
+  for (i = 0; i < K; ++i)
+    poly_decompose(&v1->vec[i], &v0->vec[i], &v->vec[i]);
+}
+
 void polyveck_pack_P(uint8_t r[K * NBYTES * LOGQ], polyveck *P)
 {
   unsigned int i;
 
   for (i = 0; i < K; ++i)
-    polyQ_pack(r + i * NBYTES * LOGQ, &P->vec[i]);
+    poly_pack_ETA(r + i * NBYTES * LOGQ, &P->vec[i], LOGQ);
 }
 
 void polyveck_unpack_P(polyveck *P, uint8_t r[K * NBYTES * LOGQ])
@@ -151,84 +166,51 @@ void polyveck_unpack_P(polyveck *P, uint8_t r[K * NBYTES * LOGQ])
   unsigned int i;
 
   for (i = 0; i < K; ++i)
-    polyQ_unpack(&P->vec[i], r + i * NBYTES * LOGQ);
+    poly_unpack_ETA(&P->vec[i], r + i * NBYTES * LOGQ, LOGQ);
 }
 
-int polyvec_chknorms(const polyvecl *Z, const polyveck *W)
+/*************************************************
+ * Name:        polyvecl_chknorm
+ *
+ * Description: Check infinity norm of polynomials in vector of length L.
+ *              Assumes input polyvecl to be reduced by polyvecl_reduce().
+ *
+ * Arguments:   - const polyvecl *v: pointer to vector
+ *              - int32_t B: norm bound
+ *
+ * Returns 0 if norm of all polynomials is strictly smaller than B <= (Q-1)/8
+ * and 1 otherwise.
+ **************************************************/
+int polyvecl_chknorm(const polyvecl *v, int32_t B)
 {
-  unsigned int i, j, min = L, max = K;
-  Q_SIZE tmp;
+  unsigned int i;
 
-  if (K < L)
-  {
-    min = K;
-    max = L;
-  }
-
-  for (i = 0; i < min; ++i)
-  {
-    for (j = 0; j < N; ++j)
-    {
-      tmp = (Q_SIZE)Z->vec[i].coeffs[j];
-      tmp -= (2 * tmp) & -(tmp >> 15); // |x| = x if x >= 0 and -x if x < 0
-      if ((S_Q_SIZE)tmp > DELTA)
-      {
-        return -1;
-      }
-
-      tmp = (Q_SIZE)W->vec[i].coeffs[j];
-      tmp -= (2 * tmp) & -(tmp >> 15);
-      if ((S_Q_SIZE)tmp > DELTA_PRIME)
-        return -1;
-    }
-  }
-
-  if (max == L)
-  {
-    for (i = min; i < max; ++i)
-    {
-      for (j = 0; j < N; ++j)
-      {
-        tmp = (Q_SIZE)Z->vec[i].coeffs[j];
-        tmp -= (2 * tmp) & -(tmp >> 15);
-        if ((S_Q_SIZE)tmp > DELTA)
-          return -1;
-      }
-    }
-  }
-  else
-  {
-    for (i = min; i < max; ++i)
-    {
-      for (j = 0; j < N; ++j)
-      {
-        tmp = (Q_SIZE)W->vec[i].coeffs[j];
-        tmp -= (2 * tmp) & -(tmp >> 15);
-        if ((S_Q_SIZE)tmp > DELTA_PRIME)
-          return -1;
-      }
-    }
-  }
+  for (i = 0; i < L; ++i)
+    if (poly_chknorm(&v->vec[i], B))
+      return -1;
 
   return 0;
 }
 
-int polyvecl_chknorms(const polyvecl *Z, const unsigned int borm)
+/*************************************************
+ * Name:        polyveck_chknorm
+ *
+ * Description: Check infinity norm of polynomials in vector of length K.
+ *              Assumes input polyvecl to be reduced by polyvecl_reduce().
+ *
+ * Arguments:   - const polyvecl *v: pointer to vector
+ *              - int32_t B: norm bound
+ *
+ * Returns 0 if norm of all polynomials is strictly smaller than B <= (Q-1)/8
+ * and 1 otherwise.
+ **************************************************/
+int polyveck_chknorm(const polyveck *v, int32_t B)
 {
-  unsigned int i, j;
-  Q_SIZE tmp;
+  unsigned int i;
 
-  for (i = 0; i < L; ++i)
-  {
-    for (j = 0; j < N; ++j)
-    {
-      tmp = (Q_SIZE)Z->vec[i].coeffs[j];
-      tmp -= (2 * tmp) & -(tmp >> 15); // |x| = x if x >= 0 and -x if x < 0
-      if ((S_Q_SIZE)tmp > borm)
-      {
-        return -1;
-      }
-    }
-  }
+  for (i = 0; i < K; ++i)
+    if (poly_chknorm(&v->vec[i], B))
+      return -1;
+
   return 0;
 }

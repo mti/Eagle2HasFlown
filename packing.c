@@ -30,7 +30,7 @@ void pack_pk(uint8_t pk[CRYPTO_EAGLESIGN_PUBLICKEYBYTES],
 
   for (i = 0; i < K; ++i)
     for (j = 0; j < L; ++j)
-      polyQ_pack(pk + (i * L + j) * NBYTES * LOGQ, &E[i].vec[j]);
+      poly_pack_ETA(pk + (i * L + j) * NBYTES * LOGQ, &E[i].vec[j], LOGQ);
 }
 
 /*************************************************
@@ -55,25 +55,29 @@ void unpack_pk(
 
   for (i = 0; i < K; ++i)
     for (j = 0; j < L; ++j)
-      polyQ_unpack(&E[i].vec[j], pk + (i * L + j) * NBYTES * LOGQ);
+      poly_unpack_ETA(&E[i].vec[j], pk + (i * L + j) * NBYTES * LOGQ, LOGQ);
 }
 
 /*************************************************
  * Name:        pack_sk
  *
- * Description: Bit-pack secret key sk = (rho, tr, G, D).
+ * Description: Bit-pack secret key sk = (rho, tr, g, D, F, Es).
  *
  * Arguments:   - uint8_t sk[]: output byte array
  *              - const uint8_t rho[]: byte array containing rho
  *              - const uint8_t tr[]: byte array containing tr
- *              - const polyvecl G[]: array containing the matrix G
+ *              - const poly g: the polynomial g
  *              - const polyvecl D[]: array containing the matrix D
+ *              - const polyvecl F[]: array containing the matrix F
+ *              - const polyvecl Es[]: array containing the matrix Es
  **************************************************/
 void pack_sk(uint8_t sk[CRYPTO_EAGLESIGN_SECRETKEYBYTES],
              const uint8_t rho[SEEDBYTES],
              const uint8_t tr[SEEDBYTES],
-             const polyvecl G[L],
-             const polyvecl D[K])
+             const poly g,
+             const polyvecl D[K],
+             const polyvecl F[L],
+             const polyvecl Es[K])
 {
   unsigned int i, j;
 
@@ -85,33 +89,46 @@ void pack_sk(uint8_t sk[CRYPTO_EAGLESIGN_SECRETKEYBYTES],
     sk[i] = tr[i];
   sk += SEEDBYTES;
 
-  for (i = 0; i < L; ++i)
-    for (j = 0; j < L; ++j)
-      polyG_pack(sk + (i * L + j) * NBYTES * LOGETAG, &G[i].vec[j], LOGETAG);
-
-  sk += L * L * NBYTES * LOGETAG;
+  poly_pack_ETA(sk, &g, 2);
+  sk += NBYTES * 2;
 
   for (i = 0; i < K; ++i)
     for (j = 0; j < L; ++j)
-      polyG_pack(sk + (i * L + j) * NBYTES * LOGETAD, &D[i].vec[j], LOGETAD);
+      poly_pack_ETA(sk + (i * L + j) * NBYTES * 2, &D[i].vec[j], 2);
+
+  sk += K * L * NBYTES * 2;
+
+  for (i = 0; i < L; ++i)
+    for (j = 0; j < L; ++j)
+      poly_pack_ETA(sk + (i * L + j) * NBYTES * LOGETAF, &F[i].vec[j], LOGETAF);
+
+  sk += L * L * NBYTES * LOGETAF;
+
+  for (i = 0; i < K; ++i)
+    for (j = 0; j < L; ++j)
+      poly_pack_ETA(sk + (i * L + j) * NBYTES * LOGQ, &Es[i].vec[j], LOGQ);
 }
 
 /*************************************************
  * Name:        unpack_sk
  *
- * Description: Unpack secret key sk = (rho, tr, G, D).
+ * Description: Unpack secret key sk = (rho, tr, g, D, F, Es).
  *
  * Arguments:   - uint8_t rho[]: output byte array for rho
  *              - uint8_t tr[]: byte array containing tr
- *              - polyvecl G[]: array containing the matrix G
- *              - polyvecl D[]: array containing the matrix D
+ *              - const poly g: the polynomial g
+ *              - const polyvecl D[]: array containing the matrix D
+ *              - const polyvecl F[]: array containing the matrix F
+ *              - const polyvecl Es[]: array containing the matrix Es
  *              - const uint8_t sk[]: output byte array
  **************************************************/
 void unpack_sk(
     uint8_t rho[SEEDBYTES],
     uint8_t tr[SEEDBYTES],
-    polyvecl G[L],
+    poly *g,
     polyvecl D[K],
+    polyvecl F[L],
+    polyvecl Es[K],
     const uint8_t sk[CRYPTO_EAGLESIGN_SECRETKEYBYTES])
 {
   unsigned int i, j;
@@ -124,31 +141,38 @@ void unpack_sk(
     tr[i] = sk[i];
   sk += SEEDBYTES;
 
-  for (i = 0; i < L; ++i)
-    for (j = 0; j < L; ++j)
-      polyG_unpack(&G[i].vec[j], sk + (i * L + j) * NBYTES * LOGETAG, LOGETAG);
-
-  sk += L * L * NBYTES * LOGETAG;
+  poly_unpack_ETA(g, sk, 2);
+  sk += NBYTES * 2;
 
   for (i = 0; i < K; ++i)
     for (j = 0; j < L; ++j)
-      polyG_unpack(&D[i].vec[j], sk + (i * L + j) * NBYTES * LOGETAD, LOGETAD);
+      poly_unpack_ETA(&D[i].vec[j], sk + (i * L + j) * NBYTES * 2, 2);
+
+  sk += K * L * NBYTES * 2;
+
+  for (i = 0; i < L; ++i)
+    for (j = 0; j < L; ++j)
+      poly_unpack_ETA(&F[i].vec[j], sk + (i * L + j) * NBYTES * LOGETAF, LOGETAF);
+
+  sk += L * L * NBYTES * LOGETAF;
+
+  for (i = 0; i < K; ++i)
+    for (j = 0; j < L; ++j)
+      poly_unpack_ETA(&Es[i].vec[j], sk + (i * L + j) * NBYTES * LOGQ, LOGQ);
 }
 
 /*************************************************
  * Name:        pack_sig
  *
- * Description: Bit-pack signature sig = (C, Z, W).
+ * Description: Bit-pack signature sig = (r, z).
  *
  * Arguments:   - uint8_t sig[]: output byte array
- *              - const uint8_t r: input byte array for r
- *              - const polyvecl *Z: pointer to vector Z
- *              - const polyveck *W: pointer to hint vector W
+ *              - const uint8_t r[]: input byte array for r
+ *              - const polyvecl *z: pointer to vector z
  **************************************************/
 void pack_sig(uint8_t sig[CRYPTO_EAGLESIGN_BYTES],
               const uint8_t r[SEEDBYTES],
-              const polyvecl *Z,
-              const polyveck *W)
+              const polyvecl *z)
 {
   unsigned int i;
 
@@ -157,22 +181,16 @@ void pack_sig(uint8_t sig[CRYPTO_EAGLESIGN_BYTES],
   sig += SEEDBYTES;
 
   for (i = 0; i < L; ++i)
-    polyZ_pack(sig + i * NBYTES * LOGDELTA, &Z->vec[i], LOGDELTA);
-
-  sig += L * NBYTES * LOGDELTA;
-
-  for (i = 0; i < K; ++i)
-    polyZ_pack(sig + i * NBYTES * LOGDELTA_PRIME, &W->vec[i], LOGDELTA_PRIME);
+    poly_pack_ETA(sig + i * NBYTES * Z_SIZE, &z->vec[i], Z_SIZE);
 }
 
 /*************************************************
  * Name:        unpack_sig
  *
- * Description: Unpack signature sig = (C, Z, W).
+ * Description: Unpack signature sig = (r, z).
  *
- * Arguments:   - uint8_t r: output byte array for r
- *              - polyvecl *Z: pointer to vector Z
- *              - polyveck *W: pointer to hint vector W
+ * Arguments:   - uint8_t r[]: output byte array for r
+ *              - polyvecl *z: pointer to vector z
  *              - const uint8_t sig[]: byte array containing
  *                bit-packed signature
  *
@@ -180,8 +198,7 @@ void pack_sig(uint8_t sig[CRYPTO_EAGLESIGN_BYTES],
  **************************************************/
 int unpack_sig(
     uint8_t r[SEEDBYTES],
-    polyvecl *Z,
-    polyveck *W,
+    polyvecl *z,
     const uint8_t sig[CRYPTO_EAGLESIGN_BYTES])
 {
   unsigned int i;
@@ -191,12 +208,5 @@ int unpack_sig(
   sig += SEEDBYTES;
 
   for (i = 0; i < L; ++i)
-    polyZ_unpack(&Z->vec[i], sig + i * NBYTES * LOGDELTA, LOGDELTA);
-
-  sig += L * NBYTES * LOGDELTA;
-
-  for (i = 0; i < K; ++i)
-    polyZ_unpack(&W->vec[i], sig + i * NBYTES * LOGDELTA_PRIME, LOGDELTA_PRIME);
-
-  return 0;
+    poly_unpack_ETA(&z->vec[i], sig + i * NBYTES * Z_SIZE, Z_SIZE);
 }

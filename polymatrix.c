@@ -12,15 +12,92 @@
 #include "poly.h"
 #include "reduce.h"
 
-void polyvec_matrix_pointwise_product(polyveck c[L], const polyvecl a[K], const polyvecl b[L])
+// /////////////////////////////////
+void print_byte_array(const uint8_t *pk, int size)
+{
+  printf("------------------------------------\n");
+  for (int j = 0; j < size; j++)
+  {
+    printf("%02x", pk[j]);
+  }
+  printf("\n------------------------------------\n");
+  printf("\n");
+}
+
+void print_poly(const poly *s)
+{
+  printf("------------------------------------\n");
+  for (int i = 0; i < N; i++)
+  {
+    printf("%d ", s->coeffs[i]);
+  }
+  printf("\n------------------------------------\n");
+  printf("\n");
+}
+
+void print_polyveck(const polyveck s, int l)
+{
+  printf("------------------------------------\n");
+  for (int j = 0; j < l; j++)
+  {
+    for (int i = 0; i < N; i++)
+    {
+      printf("%d ", s.vec[j].coeffs[i]);
+    }
+    printf("\t");
+  }
+
+  printf("\n------------------------------------\n");
+  printf("\n");
+}
+
+void print_polyvecl(const polyvecl s, int l)
+{
+  printf("------------------------------------\n");
+  for (int j = 0; j < l; j++)
+  {
+    for (int i = 0; i < N; i++)
+    {
+      printf("%d ", s.vec[j].coeffs[i]);
+    }
+    printf("\t");
+  }
+
+  printf("\n------------------------------------\n");
+  printf("\n");
+}
+
+void print_polymatrix(const polyvecl *s, int m, int l)
+{
+  printf("------------------------------------\n");
+  for (int k = 0; k < m; k++)
+  {
+    for (int j = 0; j < l; j++)
+    {
+      for (int i = 0; i < N; i++)
+      {
+        printf("%d ", s[k].vec[j].coeffs[i]);
+      }
+      printf("\t");
+    }
+    printf("\n");
+  }
+
+  printf("\n------------------------------------\n");
+  printf("\n");
+}
+
+// /////////////////////////////////
+
+void polymatrix_pointwise_product(polyveck c[L], const polyvecl a[K], const polyvecl b[L])
 {
   unsigned int i;
 
   for (i = 0; i < L; ++i)
-    polyvec_matrix_pointwise_montgomery(&c[i], a, &b[i]);
+    polymatrix_pointwise_montgomery(&c[i], a, &b[i]);
 }
 
-void polyvec_matrix_pointwise_add(polyvecl c[K], const polyvecl a[K], const polyvecl b[K])
+void polymatrix_pointwise_add(polyvecl c[K], const polyvecl a[K], const polyvecl b[K])
 {
   unsigned int i;
 
@@ -28,15 +105,33 @@ void polyvec_matrix_pointwise_add(polyvecl c[K], const polyvecl a[K], const poly
     polyvecl_add(&c[i], &a[i], &b[i]);
 }
 
-void polyvec_matrix_pointwise_product_l_l(polyvecl c[L], const polyvecl a[L], const polyvecl b[L])
+void polymatrix_pointwise_product_l_l(polyvecl c[L], const polyvecl a[L], const polyvecl b[L])
 {
   unsigned int i;
 
   for (i = 0; i < L; ++i)
-    polyvec_matrix_pointwise_montgomery_l_l(&c[i], a, &b[i]);
+    polymatrix_pointwise_montgomery_l_l(&c[i], a, &b[i]);
 }
 
-void polyvec_matrix_reformat(polyvecl b[K], const polyveck a[L])
+void poly_pointwise_matrix_product(polyvecl c[K], const poly a, const polyvecl b[K])
+{
+  unsigned int i, j;
+
+  for (i = 0; i < K; ++i)
+    for (j = 0; j < L; ++j)
+      poly_pointwise_montgomery(&c[i].vec[j], &a, &b[i].vec[j]);
+}
+
+void poly_pointwise_matrix_product_l_l(polyvecl c[L], const poly a, const polyvecl b[L])
+{
+  unsigned int i, j;
+
+  for (i = 0; i < L; ++i)
+    for (j = 0; j < L; ++j)
+      poly_pointwise_montgomery(&c[i].vec[j], &a, &b[i].vec[j]);
+}
+
+void polymatrix_reformat(polyvecl b[K], const polyveck a[L])
 {
   unsigned int i, j, k;
   for (i = 0; i < L; ++i)
@@ -45,7 +140,7 @@ void polyvec_matrix_reformat(polyvecl b[K], const polyveck a[L])
         b[j].vec[i].coeffs[k] = a[i].vec[j].coeffs[k];
 }
 
-void polyvec_matrix_reformat_l_l(polyvecl b[L], const polyvecl a[L])
+void polymatrix_reformat_l_l(polyvecl b[L], const polyvecl a[L])
 {
   unsigned int i, j, k;
   for (i = 0; i < L; ++i)
@@ -54,7 +149,7 @@ void polyvec_matrix_reformat_l_l(polyvecl b[L], const polyvecl a[L])
         b[j].vec[i].coeffs[k] = a[i].vec[j].coeffs[k];
 }
 
-void polymatrix_l_expand(polyvecl v[L], const uint8_t seed[CRHBYTES])
+void polymatrix_l_expand_f(polyvecl v[L], const uint8_t seed[CRHBYTES])
 {
   unsigned int i;
   uint16_t nonce;
@@ -62,11 +157,11 @@ void polymatrix_l_expand(polyvecl v[L], const uint8_t seed[CRHBYTES])
   for (i = 0; i < L; ++i)
   {
     nonce = (i << 8);
-    polyvecl_uniform_eta_g(&v[i], seed, &nonce);
+    polyvecl_uniform_eta_f(&v[i], seed, &nonce);
   }
 }
 
-void polymatrix_k_l_expand(polyvecl v[K], const uint8_t seed[CRHBYTES])
+void polymatrix_k_l_expand_d(polyvecl v[K], const uint8_t seed[SEEDBYTES])
 {
   unsigned int i;
   uint16_t nonce;
@@ -74,11 +169,11 @@ void polymatrix_k_l_expand(polyvecl v[K], const uint8_t seed[CRHBYTES])
   for (i = 0; i < K; ++i)
   {
     nonce = (i << 8);
-    polyvecl_uniform_eta_d(&v[i], seed, &nonce);
+    polyvecl_challenge(&v[i], seed, &nonce, 1);
   }
 }
 
-void polyvec_matrix_expand(polyvecl mat[K], const uint8_t rho[SEEDBYTES])
+void polymatrix_expand(polyvecl mat[K], const uint8_t rho[SEEDBYTES])
 {
   unsigned int i, j;
 
@@ -87,7 +182,7 @@ void polyvec_matrix_expand(polyvecl mat[K], const uint8_t rho[SEEDBYTES])
       poly_uniform(&mat[i].vec[j], rho, (i << 8) + j);
 }
 
-void polyvec_matrix_pointwise_montgomery(polyveck *t, const polyvecl mat[K], const polyvecl *v)
+void polymatrix_pointwise_montgomery(polyveck *t, const polyvecl mat[K], const polyvecl *v)
 {
   unsigned int i;
 
@@ -95,7 +190,7 @@ void polyvec_matrix_pointwise_montgomery(polyveck *t, const polyvecl mat[K], con
     polyvecl_pointwise_acc_montgomery(&t->vec[i], &mat[i], v);
 }
 
-void polyvec_matrix_pointwise_montgomery_l_l(polyvecl *t, const polyvecl mat[L], const polyvecl *v)
+void polymatrix_pointwise_montgomery_l_l(polyvecl *t, const polyvecl mat[L], const polyvecl *v)
 {
   unsigned int i;
 
@@ -292,36 +387,13 @@ int polymatrix_l_is_invertible(poly *d, const polyvecl v[L])
   return 0;
 }
 
-int polymatrix_l_inverse(polyvecl v[L], const polyvecl u[L])
+int polymatrix_l_expand_f_invertible(polyvecl v[L], polyvecl f[L], const uint8_t seed[CRHBYTES])
 {
   unsigned int i, j, k;
   poly d;
   polyvecl adj[L];
 
-  if (!polymatrix_l_is_invertible(&d, u))
-  {
-
-    adjoint(adj, u);
-
-    for (k = 0; k < N; ++k)
-      d.coeffs[k] = (S_Q_SIZE)modInverse(d.coeffs[k]);
-
-    for (i = 0; i < L; i++)
-      for (j = 0; j < L; j++)
-        poly_pointwise_montgomery(&v[j].vec[i], &adj[i].vec[j], &d);
-
-    return 0;
-  }
-  return -1;
-}
-
-int polymatrix_l_expand_invertible(polyvecl v[L], polyvecl f[L], const uint8_t seed[CRHBYTES])
-{
-  unsigned int i, j, k = 0;
-  poly d;
-  polyvecl adj[L];
-
-  polymatrix_l_expand(f, seed);
+  polymatrix_l_expand_f(f, seed);
 
   if (polymatrix_l_is_invertible(&d, f))
     return -1;
@@ -343,5 +415,32 @@ int polymatrix_l_expand_invertible(polyvecl v[L], polyvecl f[L], const uint8_t s
     for (j = 0; j < L; j++)
       poly_pointwise_montgomery(&v[j].vec[i], &adj[i].vec[j], &d);
 
+  return 0;
+}
+
+int poly_is_invertible(poly *d)
+{
+  unsigned int k;
+  // d is in ntt format and thus is invertible if all coefficients are nonzero
+  for (k = 0; k < N; ++k)
+    if (d->coeffs[k] == 0)
+      return -1;
+
+  return 0;
+}
+
+int poly_expand_g_invertible(poly *v, poly *g, const uint8_t seed[SEEDBYTES])
+{
+  unsigned int i;
+
+  poly_challenge(g, seed, 0, 0);
+
+  if (poly_is_invertible(g))
+    return -1;
+
+  for (i = 0; i < N; i++)
+  {
+    v->coeffs[i] = (S_Q_SIZE)modInverse(g->coeffs[i]);
+  }
   return 0;
 }

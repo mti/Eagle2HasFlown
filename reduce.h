@@ -31,4 +31,7 @@ Q_SIZE addq(S_Q_SIZE r);
 #define reduce EAGLESIGN_NAMESPACE(reduce)
 S_DOUBLE_Q_SIZE reduce(S_DOUBLE_Q_SIZE y);
 
+#define decompose EAGLESIGN_NAMESPACE(_decompose)
+S_Q_SIZE decompose(S_Q_SIZE *a0, S_Q_SIZE a);
+
 #endif

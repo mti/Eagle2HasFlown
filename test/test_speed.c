@@ -34,9 +34,9 @@ int main(void)
   for (i = 0; i < NTESTS; ++i)
   {
     t[i] = cpucycles();
-    polyvec_matrix_expand(A, seed);
+    polymatrix_expand(A, seed);
   }
-  print_results("polyvec_matrix_expand:", t, NTESTS);
+  print_results("polymatrix_expand:", t, NTESTS);
 
   for (i = 0; i < NTESTS; ++i)
   {
@@ -48,30 +48,16 @@ int main(void)
   for (i = 0; i < NTESTS; ++i)
   {
     t[i] = cpucycles();
-    poly_challenge_y1_c(a, seed_prime, 0, 0);
+    poly_challenge(a, seed_prime, 0, 0);
   }
-  print_results("poly_challenge_y1_c:", t, NTESTS);
+  print_results("poly_challenge:", t, NTESTS);
 
   for (i = 0; i < NTESTS; ++i)
   {
     t[i] = cpucycles();
-    poly_uniform_eta_y2(a, seed, 0);
+    poly_uniform_eta(a, seed, 0, 0);
   }
-  print_results("poly_uniform_eta_y2:", t, NTESTS);
-
-  for (i = 0; i < NTESTS; ++i)
-  {
-    t[i] = cpucycles();
-    poly_uniform_eta_g(a, seed, 0);
-  }
-  print_results("poly_uniform_eta_g:", t, NTESTS);
-
-  for (i = 0; i < NTESTS; ++i)
-  {
-    t[i] = cpucycles();
-    poly_uniform_eta_d(a, seed, 0);
-  }
-  print_results("poly_uniform_eta_d:", t, NTESTS);
+  print_results("poly_uniform_eta:", t, NTESTS);
 
   for (i = 0; i < NTESTS; ++i)
   {

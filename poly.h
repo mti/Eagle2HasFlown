@@ -32,41 +32,26 @@ void poly_pointwise_montgomery(poly *c, const poly *a, const poly *b);
 void poly_uniform(poly *a,
                   const uint8_t seed[SEEDBYTES],
                   uint16_t nonce);
-#define poly_uniform_eta_y2 EAGLESIGN_NAMESPACE(poly_uniform_eta_y2)
-void poly_uniform_eta_y2(poly *a,
-                         const uint8_t seed[CRHBYTES],
-                         uint16_t nonce);
+#define poly_uniform_eta EAGLESIGN_NAMESPACE(poly_uniform_eta)
+void poly_uniform_eta(poly *a,
+                      const uint8_t seed[CRHBYTES],
+                      uint16_t nonce,
+                      int param);
 
-#define poly_uniform_eta_g EAGLESIGN_NAMESPACE(poly_uniform_eta_g)
-void poly_uniform_eta_g(poly *a,
-                        const uint8_t seed[CRHBYTES],
-                        uint16_t nonce);
+#define poly_challenge EAGLESIGN_NAMESPACE(poly_challenge)
+void poly_challenge(poly *c, const uint8_t seed[SEEDBYTES],
+                    uint16_t nonce, int param);
 
-#define poly_uniform_eta_d EAGLESIGN_NAMESPACE(poly_uniform_eta_d)
-void poly_uniform_eta_d(poly *a,
-                        const uint8_t seed[CRHBYTES],
-                        uint16_t nonce);
+#define poly_decompose EAGLESIGN_NAMESPACE(_poly_decompose)
+void poly_decompose(poly *a1, poly *a0, const poly *a);
 
-#define poly_challenge_y1_c EAGLESIGN_NAMESPACE(poly_challenge_y1_c)
-void poly_challenge_y1_c(poly *c, const uint8_t seed[SEEDBYTES],
-                         uint16_t nonce, int param);
+#define poly_pack_ETA EAGLESIGN_NAMESPACE(poly_pack_ETA)
+void poly_pack_ETA(uint8_t *r, const poly *a, unsigned int logeta);
 
-#define polyQ_pack EAGLESIGN_NAMESPACE(polyQ_pack)
-void polyQ_pack(uint8_t *r, const poly *a);
+#define poly_unpack_ETA EAGLESIGN_NAMESPACE(poly_unpack_ETA)
+void poly_unpack_ETA(poly *r, const uint8_t *a, unsigned int logeta);
 
-#define polyQ_unpack EAGLESIGN_NAMESPACE(polyQ_unpack)
-void polyQ_unpack(poly *r, const uint8_t *a);
-
-#define polyG_pack EAGLESIGN_NAMESPACE(polyG_pack)
-void polyG_pack(uint8_t *r, const poly *a, unsigned int logeta);
-
-#define polyG_unpack EAGLESIGN_NAMESPACE(polyG_unpack)
-void polyG_unpack(poly *r, const uint8_t *a, unsigned int logeta);
-
-#define polyZ_pack EAGLESIGN_NAMESPACE(polyZ_pack)
-void polyZ_pack(uint8_t *r, const poly *a, unsigned int logeta);
-
-#define polyZ_unpack EAGLESIGN_NAMESPACE(polyZ_unpack)
-void polyZ_unpack(poly *r, const uint8_t *a, unsigned int logeta);
+#define poly_chknorm EAGLESIGN_NAMESPACE(poly_chknorm)
+int poly_chknorm(const poly *a, int32_t B);
 
 #endif

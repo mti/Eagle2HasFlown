@@ -31,40 +31,53 @@
 
 int crypto_sign_keypair(uint8_t *pk, uint8_t *sk)
 {
-  uint8_t seedbuf[SEEDBYTES + 2 * CRHBYTES];
-  uint8_t tr[SEEDBYTES], *rhoprime2;
-  const uint8_t *rho, *rhoprime1;
-  polyvecl A[K], B[L], G[L], D[K], G_INV[L], tmp1[K], E[K];
+  uint8_t seedbuf[3 * SEEDBYTES + CRHBYTES];
+  uint8_t tr[SEEDBYTES], *rhoprime1, *rhoprime3;
+  const uint8_t *rho, *rhoprime2;
+  poly g, g_inv;
+  polyvecl A[K], F[L], D[K], F_INV[L], E[K], Es[K];
   polyveck tmp2[L];
   keccak_state state;
 
   /* Get randomness for rho and rhoprime */
   randombytes(seedbuf, SEEDBYTES);
-  shake256(seedbuf, SEEDBYTES + 2 * CRHBYTES, seedbuf, SEEDBYTES);
+  shake256(seedbuf, 3 * SEEDBYTES + CRHBYTES, seedbuf, SEEDBYTES);
   rho = seedbuf;
-  rhoprime1 = rho + SEEDBYTES;
-  rhoprime2 = seedbuf + SEEDBYTES + CRHBYTES;
+  rhoprime1 = seedbuf + SEEDBYTES;
+  rhoprime2 = seedbuf + 2 * SEEDBYTES;
+  rhoprime3 = seedbuf + 3 * SEEDBYTES;
 
   /* Expand matrix A in NTT form*/
-  polyvec_matrix_expand(A, rho);
+  polymatrix_expand(A, rho);
 
-  /* Small and Uniform polynomials based matrix D*/
-  polymatrix_k_l_expand(D, rhoprime1);
+  /* Small and Sparse polynomials based matrix D*/
+  polymatrix_k_l_expand_d(D, rhoprime2);
 
-retry:
-  /* Small and Uniform polynomials based invertible matrix G and its inverse G_INV */
-  shake256(rhoprime2, CRHBYTES, rhoprime2, CRHBYTES);
-  if (polymatrix_l_expand_invertible(G_INV, G, rhoprime2))
-    goto retry;
+  /* Small and Sparse polynomial g*/
+retry_g:
+  shake256(rhoprime1, SEEDBYTES, rhoprime1, SEEDBYTES);
+  if (poly_expand_g_invertible(&g_inv, &g, rhoprime1))
+    goto retry_g;
 
-  /* Compute E = (A + D)*G_INV */
-  polyvec_matrix_pointwise_add(tmp1, A, D);
-  polyvec_matrix_pointwise_product(tmp2, tmp1, G_INV);
-  polyvec_matrix_reformat(E, tmp2);
+  /* Small and Uniform polynomials based invertible matrix F and its inverse F_INV */
+retry_F:
+  shake256(rhoprime3, CRHBYTES, rhoprime3, CRHBYTES);
+  if (polymatrix_l_expand_f_invertible(F_INV, F, rhoprime3))
+    goto retry_F;
+
+  /* Compute Es = (AF^{-1} + D)*/
+  polymatrix_pointwise_product(tmp2, A, F_INV);
+  polymatrix_reformat(Es, tmp2);
+  polymatrix_pointwise_add(Es, Es, D);
+
+  /* Compute E = Es*g^{-1} */
+  poly_pointwise_matrix_product(E, g_inv, Es);
 
   /*Bring back elements from ntt*/
   polymatrix_invntt_tomont_k_l(E);
-  polymatrix_invntt_tomont_l_l(G);
+  polymatrix_invntt_tomont_k_l(Es);
+  poly_invntt_tomont(&g);
+  polymatrix_invntt_tomont_l_l(F);
   polymatrix_invntt_tomont_k_l(D);
 
   /* Extracting public key pk = (rho, E) */
@@ -74,8 +87,8 @@ retry:
   // tr = CRH1(pk)
   shake256(tr, SEEDBYTES, pk, CRYPTO_EAGLESIGN_PUBLICKEYBYTES);
 
-  /* Extracting secret key sk = (rho, tr, G, D) */
-  pack_sk(sk, rho, tr, G, D);
+  /* Extracting secret key sk = (rho, tr, g, D, F, Es) */
+  pack_sk(sk, rho, tr, g, D, F, Es);
   return 0;
 }
 
@@ -98,72 +111,84 @@ int crypto_sign_signature(uint8_t *sig,
                           size_t mlen,
                           const uint8_t *sk)
 {
-  uint8_t seedbuf[3 * SEEDBYTES + 2 * CRHBYTES];
   uint8_t tmp[K * NBYTES * LOGQ],
       rho[SEEDBYTES], tr[SEEDBYTES],
       mu[CRHBYTES], rhoprime[CRHBYTES],
-      r[SEEDBYTES], c[SEEDBYTES];
-  polyvecl A[K], B[K], G[L], E[K], D[K], Y1, C, U, Z, V2;
-  polyveck Y2, P, W, V, V1;
+      r[SEEDBYTES], cp[SEEDBYTES];
+  polyvecl A[K], F[L], E[K], Es[K], D[K], y, c, u, z, h;
+  polyveck p, p_highbits, p_lowbits, p_prime, p_prime_highbits, p_prime_lowbits, hp;
+  poly g;
   uint16_t nonce = 0, nonce_c = 0;
   keccak_state state;
 
-  unpack_sk(rho, tr, G, D, sk);
+  unpack_sk(rho, tr, &g, D, F, Es, sk);
 
+  poly_ntt(&g);
+  polymatrix_ntt_k_l(Es);
+  polymatrix_ntt_l_l(F);
   polymatrix_ntt_k_l(D);
-  polymatrix_ntt_l_l(G);
 
   /* Expand matrix A in NTT form*/
-  polyvec_matrix_expand(A, rho);
+  polymatrix_expand(A, rho);
 
-  /* Generating ephemeral secret keys Y1 and Y2 */
+  /* Generating ephemeral secret keys y */
   randombytes(rhoprime, CRHBYTES);
-  polyvecl_challenge_y1_c(&Y1, rhoprime, &nonce, 0);
-  polyveck_uniform_eta_y2(&Y2, rhoprime, &nonce);
+rej:
+  polyveck_uniform_eta_y(&y, rhoprime, &nonce);
 
-  /* Computing P = AY1 + Y2 */
-  polyvec_matrix_pointwise_montgomery(&P, A, &Y1);
-  polyveck_add(&P, &P, &Y2);
+  /* Computing P = Es*y */
+  polymatrix_pointwise_montgomery(&p, Es, &y);
+  polyveck_invntt_tomont(&p);
 
-  // /* Compute mu = CRH(tr, m) */
+  /* Decomposition p_highbits, p_lowbits = HighBits(p)*/
+  polyveck_decompose(&p_highbits, &p_lowbits, &p);
+
+  /* Compute r = G(p_highbits)*/
+  polyveck_pack_P(tmp, &p_highbits);
+  shake256_init(&state);
+  shake256_absorb(&state, tmp, K * NBYTES * LOGQ);
+  shake256_finalize(&state);
+  shake256_squeeze(r, SEEDBYTES, &state);
+
+  /* Compute mu = CRH(tr, m) */
   shake256_init(&state);
   shake256_absorb(&state, tr, SEEDBYTES);
   shake256_absorb(&state, m, mlen);
   shake256_finalize(&state);
   shake256_squeeze(mu, CRHBYTES, &state);
 
-  /* Compute r = G(P)*/
-  polyveck_invntt_tomont(&P);
-  polyveck_pack_P(tmp, &P);
-
-  shake256_init(&state);
-  shake256_absorb(&state, tmp, K * NBYTES * LOGQ);
-  shake256_finalize(&state);
-  shake256_squeeze(r, SEEDBYTES, &state);
-
-  /* Call the random oracle and Compute C = H(mu,r)*/
+  /* Call the random oracle and Compute c = H(mu,r)*/
   shake256_init(&state);
   shake256_absorb(&state, r, SEEDBYTES);
   shake256_absorb(&state, mu, CRHBYTES);
   shake256_finalize(&state);
-  shake256_squeeze(c, SEEDBYTES, &state);
-  polyvecl_challenge_y1_c(&C, c, &nonce_c, 1);
+  shake256_squeeze(cp, SEEDBYTES, &state);
+  nonce_c = 0;
+  polyvecl_challenge(&c, cp, &nonce_c, 2);
 
-  /* Compute U = Y1 + C */
-  polyvecl_add(&U, &Y1, &C);
+  /* Compute u = y + Fc */
+  polymatrix_pointwise_montgomery_l_l(&h, F, &c);
+  polyvecl_add(&u, &y, &h);
 
-  /* Compute Z = GU */
-  polyvec_matrix_pointwise_montgomery_l_l(&Z, G, &U);
+  /* Compute z = gu, reject if it reveals secret (Zero Knowledge Property)*/
+  polyvecl_pointwise_poly_montgomery(&z, &g, &u);
+  polyvecl_invntt_tomont(&z);
+  if (polyvecl_chknorm(&z, TG * (GAMMA1 - BETA)))
+    goto rej;
 
-  /* Compute W = Y2 - DU */
-  polyvec_matrix_pointwise_montgomery(&W, D, &U);
-  polyveck_sub(&W, &Y2, &W);
+  /* Check that adding DFc does not change high bits of p and low bits
+   * do not reveal secret information */
+  polymatrix_pointwise_montgomery(&hp, D, &h);
+  polyveck_invntt_tomont(&hp);
+  polyveck_add(&p_prime, &p, &hp);
+  if (polyveck_chknorm(&p_prime, (Q >> 1) - L * TD * BETA))
+    goto rej;
+  polyveck_decompose(&p_prime_highbits, &p_prime_lowbits, &p_prime);
+  if (polyveck_chknorm(&p_prime_lowbits, GAMMA2 - L * TD * BETA))
+    goto rej;
 
-  /* Packing Signature (C, Z, W)*/
-  polyvecl_invntt_tomont(&Z);
-  polyveck_invntt_tomont(&W);
-
-  pack_sig(sig, r, &Z, &W);
+  /* Packing Signature (r, z)*/
+  pack_sig(sig, r, &z);
 
   *siglen = CRYPTO_EAGLESIGN_BYTES;
   return 0;
@@ -222,23 +247,23 @@ int crypto_sign_verify(const uint8_t *sig,
                        const uint8_t *pk)
 {
   unsigned int i, j;
-  uint8_t rho[SEEDBYTES], tmp[K * NBYTES * LOGQ], mu[CRHBYTES], c[SEEDBYTES], r[SEEDBYTES], r_prime[SEEDBYTES];
-  polyvecl A[K], E[K], C, C_prime, Z;
-  polyveck W, V, V1;
+  uint8_t rho[SEEDBYTES], tmp[K * NBYTES * LOGQ],
+      mu[CRHBYTES], cp[SEEDBYTES], r[SEEDBYTES],
+      r_prime[SEEDBYTES];
+  polyvecl A[K], E[K], c, c_prime, z;
+  polyveck v, v_highbits, v_lowbits, v1;
   keccak_state state;
   uint16_t nonce_c = 0;
 
   unpack_pk(rho, E, pk);
+  unpack_sig(r, &z, sig);
 
-  unpack_sig(r, &Z, &W, sig);
-
-  if (polyvec_chknorms(&Z, &W))
+  if (polyvecl_chknorm(&z, TG * (GAMMA1 - BETA)))
     return -1;
 
   /* Applying NTT Transformation*/
   polymatrix_ntt_k_l(E);
-  polyvecl_ntt(&Z);
-  polyveck_ntt(&W);
+  polyvecl_ntt(&z);
 
   /* Compute mu = CRH(H(pk), msg) */
   shake256(mu, SEEDBYTES, pk, CRYPTO_EAGLESIGN_PUBLICKEYBYTES);
@@ -253,40 +278,43 @@ int crypto_sign_verify(const uint8_t *sig,
   shake256_absorb(&state, r, SEEDBYTES);
   shake256_absorb(&state, mu, CRHBYTES);
   shake256_finalize(&state);
-  shake256_squeeze(c, SEEDBYTES, &state);
-  polyvecl_challenge_y1_c(&C, c, &nonce_c, 1);
+  shake256_squeeze(cp, SEEDBYTES, &state);
+  nonce_c = 0;
+  polyvecl_challenge(&c, cp, &nonce_c, 2);
 
   /* Expand matrix A in NTT form*/
-  polyvec_matrix_expand(A, rho);
+  polymatrix_expand(A, rho);
 
-  /* Compute V = EZ − AC + W */
-  polyvec_matrix_pointwise_montgomery(&V, E, &Z);
-  polyvec_matrix_pointwise_montgomery(&V1, A, &C);
-  polyveck_sub(&V, &V, &V1);
-  polyveck_add(&V, &V, &W);
+  /* Compute V = Ez − Ac */
+  polymatrix_pointwise_montgomery(&v, E, &z);
+  polymatrix_pointwise_montgomery(&v1, A, &c);
+  polyveck_sub(&v, &v, &v1);
+  polyveck_invntt_tomont(&v);
+
+  /* Decomposition v_highbits, v_lowbits = HighBits(v)*/
+  polyveck_decompose(&v_highbits, &v_lowbits, &v);
 
   /* Compute r_prime = G(V) */
-  polyveck_invntt_tomont(&V);
-  polyveck_pack_P(tmp, &V);
+  polyveck_pack_P(tmp, &v_highbits);
 
   shake256_init(&state);
   shake256_absorb(&state, tmp, K * NBYTES * LOGQ);
   shake256_finalize(&state);
   shake256_squeeze(r_prime, SEEDBYTES, &state);
 
-  /* Compute C_prime = H(mu,r_prime) */
+  /* Compute c_prime = H(mu,r_prime) */
   shake256_init(&state);
   shake256_absorb(&state, r_prime, SEEDBYTES);
   shake256_absorb(&state, mu, CRHBYTES);
   shake256_finalize(&state);
-  shake256_squeeze(c, SEEDBYTES, &state);
+  shake256_squeeze(cp, SEEDBYTES, &state);
   nonce_c = 0;
-  polyvecl_challenge_y1_c(&C_prime, c, &nonce_c, 1);
+  polyvecl_challenge(&c_prime, cp, &nonce_c, 2);
 
-  /* Comparing C and C_prime */
+  /* Comparing c and c_prime */
   for (i = 0; i < L; ++i)
     for (j = 0; j < N; ++j)
-      if (C.vec[i].coeffs[j] != C_prime.vec[i].coeffs[j])
+      if (c.vec[i].coeffs[j] != c_prime.vec[i].coeffs[j])
         return -1;
 
   return 0;
