@@ -29,7 +29,7 @@ shared: \
   libpq_aes256ctr_ref.so \
 
 attack: \
-  test/key_recovery2 \
+  test/key_recovery2 test/key_recoveryF2 \
 
 libpq_fips202_ref.so: fips202.c fips202.h
 	$(CC) -shared -fPIC $(CFLAGS) -o $@ $<
@@ -136,6 +136,27 @@ test/key_recovery52: test/key_recovery.c test/speed_print.c test/speed_print.h \
 	  -o $@ $< test/speed_print.c test/cpucycles.c randombytes.c \
 	  $(KECCAK_SOURCES) -lm
 
+test/key_recoveryF2: test/key_recoveryF.c test/speed_print.c test/speed_print.h \
+  test/cpucycles.c test/cpucycles.h randombytes.c $(KECCAK_SOURCES) \
+  $(KECCAK_HEADERS)
+	$(CC) $(CFLAGS) -DEAGLESIGN_MODE=2 \
+	  -o $@ $< test/speed_print.c test/cpucycles.c randombytes.c \
+	  $(KECCAK_SOURCES) -lm
+
+test/key_recoveryF5: test/key_recoveryF.c test/speed_print.c test/speed_print.h \
+  test/cpucycles.c test/cpucycles.h randombytes.c $(KECCAK_SOURCES) \
+  $(KECCAK_HEADERS)
+	$(CC) $(CFLAGS) -DEAGLESIGN_MODE=5 \
+	  -o $@ $< test/speed_print.c test/cpucycles.c randombytes.c \
+	  $(KECCAK_SOURCES) -lm
+
+test/key_recoveryF52: test/key_recoveryF.c test/speed_print.c test/speed_print.h \
+  test/cpucycles.c test/cpucycles.h randombytes.c $(KECCAK_SOURCES) \
+  $(KECCAK_HEADERS)
+	$(CC) $(CFLAGS) -DEAGLESIGN_MODE=52 \
+	  -o $@ $< test/speed_print.c test/cpucycles.c randombytes.c \
+	  $(KECCAK_SOURCES) -lm
+
 
 clean:
 	rm -f *~ test/*~ *.gcno *.gcda *.lcov
@@ -159,3 +180,6 @@ clean:
 	rm -f test/key_recovery2
 	rm -f test/key_recovery5
 	rm -f test/key_recovery52
+	rm -f test/key_recoveryF2
+	rm -f test/key_recoveryF5
+	rm -f test/key_recoveryF52

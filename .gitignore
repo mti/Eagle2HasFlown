@@ -68,5 +68,8 @@ test/test_vectors52
 test/key_recovery2
 test/key_recovery5
 test/key_recovery52
+test/key_recoveryF2
+test/key_recoveryF5
+test/key_recoveryF52
 
 *~
